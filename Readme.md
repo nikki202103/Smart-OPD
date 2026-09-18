@@ -80,7 +80,7 @@ Patient receives:
 
 ### 4. Self-Improving Consultation Time Estimates (Feedback Loop)
 
-**The gap this fixes:** Arrival windows depend entirely on "average consultation time." If that number is set once and never updated, every prediction slowly drifts away from reality.
+**Problem this solves:** Arrival windows depend entirely on "average consultation time." If that number is set once during setup and never updated, every prediction slowly drifts away from reality — a new doctor, a slower case mix, or a seasonal change (like flu season) makes the old average wrong, and nobody notices.
 
 ```
 Every consultation is timed automatically:
@@ -91,12 +91,12 @@ Consultation ends   → system logs end_time
 This feeds back into a rolling 30-day average, PER DOCTOR:
 - Dr. Sharma's average recalculated after every patient
 - A new/slower/faster doctor's pace is reflected within days
-- Seasonal changes (e.g., flu season = longer consults) get captured automatically
+- Seasonal changes get captured automatically, not manually re-entered
 
 Result: Tomorrow's arrival windows are based on TODAY's real data,
-not a number typed in once during setup.
+not a number typed in once and forgotten.
 ```
-**Benefit:** Predictions get more accurate over time instead of staying static — this is what makes the arrival-window promise trustworthy long-term.
+**Benefit:** Predictions get more accurate over time instead of staying static.
 
 ---
 
@@ -115,11 +115,9 @@ Live Updates:
 
 ---
 
-### 6. Smart Dynamic Rescheduling (Capacity-Checked, Not a Free-for-All)
+### 6. Smart Dynamic Rescheduling (One Priority Rule, Not Two)
 
-**The problem with a naive version:** If a doctor becomes unavailable and every affected patient is simply asked "want to see Dr. Kumar instead?", everyone says yes at once — this just overloads Dr. Kumar's queue and pushes back *his* own patients. The chaos moves, it doesn't disappear.
-
-**The actual solution — system allocates, patients don't race:**
+**Problem this solves:** An earlier version of this system checked urgency *twice* — once when the queue was first built (Feature 8: urgent-but-stable patients get moved up in token order), and *again* during rescheduling ("urgent cases first, then queue order"). Two separate urgency checks can disagree with each other, are harder to explain, and do the same job twice for no benefit. The fix is to decide urgency **once**, at registration, and let everything downstream simply respect token order.
 
 ```
 Doctor unavailable (emergency) mid-session:
@@ -127,19 +125,23 @@ Doctor unavailable (emergency) mid-session:
 STEP 1 — Check real spare capacity first:
   Dr. Kumar's session capacity: 30 | Already booked: 22 | Spare: 8 slots only
 
-STEP 2 — System selects WHO moves (rule-based, not first-click-wins):
-  Priority order: urgent-but-stable cases → then queue order (token 1, 2, 3...)
-  Only as many patients as spare capacity allows are moved
+STEP 2 — Move patients strictly by token order, up to spare capacity:
+  Token #1, #2, #3 ... moved first — no separate urgency re-check here,
+  because urgent-but-stable patients were already given earlier tokens
+  by the clinical-priority step at registration (Feature 8).
 
 STEP 3 — Notify, don't invite:
-  Reassigned patients get an ASSIGNMENT: 
+  Reassigned patients get an ASSIGNMENT:
     "You've been moved to Dr. Kumar. New time: 11:15 AM."
   Remaining patients (no capacity conflict for them) get a REAL choice:
     "Dr. Sharma delayed ~60 min. Wait, or reschedule to tomorrow 9 AM?"
 
-STEP 4 — Emergency/red-flag cases always get priority regardless of the above.
+STEP 4 — Genuine emergencies (red-flag symptoms) still bypass everything
+  above entirely — they were never in this queue to begin with.
 ```
-**Benefit:** No race condition, no overloading the alternate doctor, and the selection is fair (rule-based) rather than "whoever replies fastest."
+**Known limitation:** This relies on Feature 8's priority sorting being airtight — if a patient's condition changes to urgent *after* registration but before the queue is re-sorted, token order alone could momentarily miss them. This is a small, acknowledged edge case, not a reason to bring back a second competing priority system.
+
+**Benefit:** No race condition, no doctor overload, and a single, explainable rule for who moves.
 
 ---
 
@@ -156,12 +158,16 @@ EARLY WINDOW: 8-10 AM (dedicated to rural/far-distance patients)
 
 ---
 
-### 8. Clinical Priority & Safety
+### 8. Clinical Priority & Safety (Where Urgency Is Decided — Once)
 
 ```
-Patient enters reason: "Chest pain + shortness of breath"
+Patient enters reason: "High fever, 3 days" (urgent, not emergency)
+→ System moves patient up 3-5 positions in the token queue at registration
+→ This is the ONLY place urgency changes queue position
+
+Patient enters reason: "Chest pain + shortness of breath" (true emergency)
 → System flags as EMERGENCY, routes to triage immediately
-→ NOT placed in regular queue
+→ NOT placed in the regular queue at all
 → Final decision always made by medical staff, never by AI alone
 ```
 
@@ -200,7 +206,8 @@ If internet fails:
 | Total visit time | 3-4 hours | 30-60 min |
 | Peak hour crowding | 500+ people | 100-150 people |
 | Consultation time estimate | Static/guessed | Self-updating (per doctor, daily) |
-| Doctor unavailable | All patients race for alternate doctor | Capacity-checked, rule-based reassignment |
+| Doctor unavailable | All patients race for alternate doctor | Capacity-checked, single-rule reassignment |
+| Urgency handling | Could be decided in two conflicting places | Decided once, at registration |
 | Late arrival handling | No process, pure chaos | Grace period + fair walk-in fallback |
 | Rural patient time | 4-6 hours | 45-60 min |
 | Patient satisfaction | 35-45% | 75-85% |
@@ -248,6 +255,7 @@ Security:      AES-256 encryption, HIPAA-aligned data handling
 - ✅ No-show rate: ↓ 70% (20% → 5-8%)
 - ✅ Consultation-time prediction accuracy: improves month over month (tracked via feedback loop)
 - ✅ Doctor-reassignment overload incidents: 0 (capacity-checked by design)
+- ✅ Conflicting urgency decisions: 0 (single priority rule, not two)
 - ✅ System uptime: 99%+ (offline fallback included)
 
 ---
@@ -257,6 +265,7 @@ Security:      AES-256 encryption, HIPAA-aligned data handling
 - **vs. Practo/Apollo:** They let everyone book any slot → still crowded. Smart OPD assigns windows based on real, continuously-updated capacity.
 - **vs. Static prediction systems:** A one-time "average consultation time" guess goes stale. Smart OPD's estimate improves daily from real data.
 - **vs. Naive doctor-switch offers:** Opening "see another doctor" to everyone just overloads that doctor. Smart OPD checks spare capacity first and assigns, rather than inviting a race.
+- **vs. Double-priority systems:** Deciding urgency in two separate places risks contradictions. Smart OPD decides it once, at registration, and every later step just respects that order.
 - **vs. Rigid appointment systems:** They ignore lateness and emergencies. Smart OPD explicitly separates emergency triage from routine scheduling and gives late patients a fair path back into the queue.
 
 **Proof points:** Similar flow-management systems in Tamil Nadu (mHMS), Kerala (AIMS), and Telangana (e-Hospital) show 20-40% wait-time and throughput improvements, though full rollout took 8+ years — Smart OPD is designed to reach a working pilot in 12 weeks.
@@ -269,7 +278,7 @@ Security:      AES-256 encryption, HIPAA-aligned data handling
 ✅ Accessible — smartphone, phone, or no-tech patients all included
 ✅ Resilient — works offline, doesn't crash the hospital
 ✅ Honest — realistic wait windows, self-correcting estimates, no false promises
-✅ Fair — reassignment, lateness, and emergencies handled by rule, not by race
+✅ Fair — one clear priority rule, not competing ones; lateness and emergencies handled by rule, not by race
 ✅ Privacy-Safe — minimal data collection, encrypted, access-controlled
 ✅ Sustainable — maintainable locally, no vendor lock-in
 
@@ -291,7 +300,7 @@ Security:      AES-256 encryption, HIPAA-aligned data handling
 ✅ Capacity-managed arrival windows
 ✅ Consultation-time feedback loop (self-improving predictions)
 ✅ Live queue tracking
-✅ Capacity-checked dynamic rescheduling
+✅ Capacity-checked dynamic rescheduling (single priority rule)
 ✅ Late-arrival & emergency handling logic
 ✅ Admin dashboard
 ✅ Manual offline procedures
@@ -302,7 +311,7 @@ Security:      AES-256 encryption, HIPAA-aligned data handling
 
 ## Conclusion
 
-Smart OPD moves government hospital OPDs from **chaotic first-come-first-served** to **organized, predictable, and fair patient flow** — including honest handling of the messy real-world cases: stale predictions, doctor unavailability, late arrivals, and genuine emergencies.
+Smart OPD moves government hospital OPDs from **chaotic first-come-first-served** to **organized, predictable, and fair patient flow** — including honest handling of the messy real-world cases: stale predictions, doctor unavailability, conflicting priority logic, late arrivals, and genuine emergencies.
 
 **What's needed to start:**
 1. Government hospital partnership for pilot
