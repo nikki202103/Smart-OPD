@@ -8,7 +8,7 @@
 
 ## What This POC Actually Is
 
-The full Smart OPD concept (see `VISION.md` for the original idea) covers many features — multi-channel registration, voice assistant, rural batch booking, dynamic rescheduling, etc.
+The full Smart OPD concept (see `POC_Readme.md` for the original idea) covers many features — multi-channel registration, voice assistant, rural batch booking, dynamic rescheduling, etc.
 
 **This POC does NOT attempt all of that.** Building the whole thing first and testing nothing is how projects like this fail. Instead, this POC picks **one narrow, end-to-end slice** and makes it real.
 
